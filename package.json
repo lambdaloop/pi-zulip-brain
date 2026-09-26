@@ -1,0 +1,26 @@
+{
+  "name": "pi-zulip",
+  "version": "0.1.0",
+  "description": "A Zulip integration extension for Pi coding-agent sessions",
+  "license": "MIT",
+  "type": "module",
+  "keywords": ["pi-package", "zulip", "pi-extension"],
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "typebox": "*"
+  }
+}
