@@ -232,12 +232,8 @@ export class ZulipClient {
     await this.request("PATCH", `/messages/${messageId}`, params, { signal });
   }
 
-  async addReaction(messageId: number, emojiName: string, signal?: AbortSignal, emojiCode?: string): Promise<void> {
-    await this.request("POST", `/messages/${messageId}/reactions`, {
-      emoji_name: emojiName,
-      emoji_code: emojiCode,
-      reaction_type: emojiCode ? "unicode_emoji" : undefined,
-    }, { signal });
+  async addReaction(messageId: number, emojiName: string, signal?: AbortSignal): Promise<void> {
+    await this.request("POST", `/messages/${messageId}/reactions`, { emoji_name: emojiName }, { signal });
   }
 
   async sendTyping(streamId: number, topic: string, signal?: AbortSignal): Promise<void> {
