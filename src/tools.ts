@@ -116,8 +116,11 @@ export function registerTools(pi: ExtensionAPI, runtime: ToolRuntime): void {
       const connection = runtime.getConnection();
       if (!connection) return textResult("Not attached to Zulip; use /zulip-start first.");
       try {
-        const questionId = await connection.createQuestion(params.question, params.options, params.recommended === undefined ? undefined : params.recommended - 1);
-        return textResult(`Asked the human in Zulip. Question ID: ${questionId}. Continue independent work; call zulip_wait only if this turn must pause for the answer.`);
+        const result = await connection.createQuestion(params.question, params.options, params.recommended === undefined ? undefined : params.recommended - 1);
+        const reactions = result.reactionErrors.length
+          ? `Pre-added ${result.reactionsAdded}/${params.options.length} numbered reactions; failures: ${result.reactionErrors.join("; ")}. The human can still reply with the question ID.`
+          : `Pre-added ${result.reactionsAdded} numbered reaction answers.`;
+        return textResult(`Asked the human in Zulip. Question ID: ${result.id}. ${reactions} Continue independent work; call zulip_wait only if this turn must pause for the answer.`);
       } catch (error) {
         return textResult(`Could not ask in Zulip: ${safeError(error)}`);
       }

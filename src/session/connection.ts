@@ -22,6 +22,13 @@ const MAX_BACKLOG_PAGES = 10;
 const CHOICE_NAMES: Record<string, number> = {
   one: 0, keycap_1: 0, two: 1, keycap_2: 1, three: 2, keycap_3: 2, four: 3, keycap_4: 3, five: 4, keycap_5: 4,
 };
+const CHOICE_REACTIONS = [
+  { name: "one", code: "31-fe0f-20e3" },
+  { name: "two", code: "32-fe0f-20e3" },
+  { name: "three", code: "33-fe0f-20e3" },
+  { name: "four", code: "34-fe0f-20e3" },
+  { name: "five", code: "35-fe0f-20e3" },
+] as const;
 
 /** Owns one channel-narrow event queue. Topic/sender filtering remains local and strict. */
 export class ZulipConnection {
@@ -124,7 +131,7 @@ export class ZulipConnection {
     });
   }
 
-  async createQuestion(question: string, options: string[], recommendedIndex?: number): Promise<string> {
+  async createQuestion(question: string, options: string[], recommendedIndex?: number): Promise<{ id: string; reactionsAdded: number; reactionErrors: string[] }> {
     const id = `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     const state = this.options.state;
     const notify = await this.client.getUser(state.notifyUserId).catch(() => undefined);
@@ -136,10 +143,15 @@ export class ZulipConnection {
     });
     const text = `${mention}**Question ID:** ${id}\n${question}\n\n${optionLines.join("\n")}\n\nReact to this message with the matching number, or reply with the question ID and your answer.`;
     const messageId = await this.client.sendMessage(state.channelName, state.topic, text);
-    const reactionNames = ["one", "two", "three", "four", "five"];
-    const reactions = await Promise.allSettled(options.map((_, index) => this.client.addReaction(messageId, reactionNames[index]!)));
-    if (reactions.some((result) => result.status === "rejected")) {
-      this.notify("Could not add all choice reactions to the Zulip question; replies still work.", "warning");
+    const reactions = await Promise.allSettled(options.map((_, index) => {
+      const reaction = CHOICE_REACTIONS[index]!;
+      return this.client.addReaction(messageId, reaction.name, undefined, reaction.code);
+    }));
+    const reactionErrors = reactions.flatMap((result, index) => result.status === "rejected"
+      ? [`${index + 1}: ${safeError(result.reason)}`]
+      : []);
+    if (reactionErrors.length) {
+      this.notify(`Could not add ${reactionErrors.length} choice reaction(s) to the Zulip question: ${reactionErrors.join("; ")}. Replies still work.`, "warning");
     }
     const record: OpenQuestion = { id, messageId, question, options, recommendedIndex };
     state.openQuestions.push(record);
@@ -147,7 +159,7 @@ export class ZulipConnection {
     state.statusCard.status = `⏸ waiting on you: ${question}`;
     persistAttachment(this.options.pi, state);
     await this.refreshStatusCard();
-    return id;
+    return { id, reactionsAdded: reactions.length - reactionErrors.length, reactionErrors };
   }
 
   async updateStatusCard(patch?: Partial<{ goal: string; status: string; checklist: string[]; decision: string }>): Promise<void> {

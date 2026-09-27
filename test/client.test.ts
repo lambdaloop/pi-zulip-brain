@@ -62,9 +62,9 @@ test("adding a reaction uses Zulip's emoji_name API field", async () => {
   }) as typeof fetch;
   try {
     const client = new ZulipClient("https://zulip.example", "bot@example.com", "bot-key");
-    await client.addReaction(42, "one");
+    await client.addReaction(42, "one", undefined, "31-fe0f-20e3");
     assert.equal(url, "https://zulip.example/api/v1/messages/42/reactions");
-    assert.equal(body, "emoji_name=one");
+    assert.equal(body, "emoji_name=one&emoji_code=31-fe0f-20e3&reaction_type=unicode_emoji");
   } finally {
     globalThis.fetch = originalFetch;
   }
