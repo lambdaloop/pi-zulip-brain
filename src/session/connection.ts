@@ -61,15 +61,16 @@ export class ZulipConnection {
       this.lastEventId = this.queue.last_event_id;
 
       const missed = await this.fetchMissedMessages(signal);
-      if (options.previewBacklog && missed.length) {
-        const accepted = await this.previewBacklog(missed);
+      const humanMissed = await this.filterHumanMessages(missed, signal);
+      if (options.previewBacklog && humanMissed.length) {
+        const accepted = await this.previewBacklog(humanMissed);
         if (!accepted) {
           await this.stop();
           return false;
         }
-        await this.deliverBatch(missed);
-      } else if (missed.length) {
-        await this.deliverBatch(missed);
+        await this.deliverBatch(humanMissed);
+      } else if (humanMissed.length) {
+        await this.deliverBatch(humanMissed);
       }
       this.connected = true;
       this.options.onConnectionChange?.(true);
@@ -127,14 +128,19 @@ export class ZulipConnection {
     const id = `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     const state = this.options.state;
     const notify = await this.client.getUser(state.notifyUserId).catch(() => undefined);
-    const mention = notify ? ` ${`@**${notify.full_name.replace(/[|*<>]/g, "")}|${notify.user_id}**`}` : "";
+    const mention = notify ? `@**${notify.full_name.replace(/[|*<>]/g, "")}|${notify.user_id}**\n` : "";
     const optionLines = options.map((option, index) => {
       const emoji = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"][index];
       const mark = index === recommendedIndex ? " *(recommended)*" : "";
       return `${emoji} ${option}${mark}`;
     });
-    const text = `🔴 **Needs your decision**${mention}\n**Question ID:** ${id}\n${question}\n\n${optionLines.join("\n")}\n\nReact to this message with the matching number, or reply with the question ID and your answer.`;
+    const text = `${mention}**Question ID:** ${id}\n${question}\n\n${optionLines.join("\n")}\n\nReact to this message with the matching number, or reply with the question ID and your answer.`;
     const messageId = await this.client.sendMessage(state.channelName, state.topic, text);
+    const reactionNames = ["one", "two", "three", "four", "five"];
+    const reactions = await Promise.allSettled(options.map((_, index) => this.client.addReaction(messageId, reactionNames[index]!)));
+    if (reactions.some((result) => result.status === "rejected")) {
+      this.notify("Could not add all choice reactions to the Zulip question; replies still work.", "warning");
+    }
     const record: OpenQuestion = { id, messageId, question, options, recommendedIndex };
     state.openQuestions.push(record);
     addOwnedMessage(state, messageId);
@@ -489,6 +495,16 @@ export class ZulipConnection {
       }
     }
     persistAttachment(this.options.pi, state);
+  }
+
+  private async filterHumanMessages(messages: ZulipMessage[], signal?: AbortSignal): Promise<ZulipMessage[]> {
+    const humans: ZulipMessage[] = [];
+    for (const message of messages) {
+      if (message.sender_id === this.options.state.botUserId) continue;
+      const sender = await this.getUser(message.sender_id, signal);
+      if (sender && !sender.is_bot) humans.push(message);
+    }
+    return humans;
   }
 
   private async previewBacklog(messages: ZulipMessage[]): Promise<boolean> {

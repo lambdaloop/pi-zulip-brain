@@ -51,6 +51,25 @@ test("password exchange is unauthenticated and API failures do not expose creden
   }
 });
 
+test("adding a reaction uses Zulip's emoji_name API field", async () => {
+  const originalFetch = globalThis.fetch;
+  let body = "";
+  let url = "";
+  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    url = String(input);
+    body = String(init?.body);
+    return Response.json({ result: "success" });
+  }) as typeof fetch;
+  try {
+    const client = new ZulipClient("https://zulip.example", "bot@example.com", "bot-key");
+    await client.addReaction(42, "one");
+    assert.equal(url, "https://zulip.example/api/v1/messages/42/reactions");
+    assert.equal(body, "emoji_name=one");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("event subscriptions are narrowed by channel name and filtered event types", async () => {
   const originalFetch = globalThis.fetch;
   let body = "";
