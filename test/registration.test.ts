@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import extension from "../src/index.ts";
+import { formatPostResult } from "../src/tools.ts";
+
+test("zulip_post tool result echoes the sent text and attachments into the Pi session", () => {
+  assert.equal(formatPostResult(42, "  Status: done  ", ["artifacts/preview.png"]),
+    "Posted to the attached Zulip topic (message 42):\n\nStatus: done\n\nAttachments uploaded: artifacts/preview.png");
+});
 
 test("registers commands and five dynamically gated tools without starting network work", () => {
   const tools: string[] = [];

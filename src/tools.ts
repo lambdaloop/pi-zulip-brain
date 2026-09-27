@@ -48,8 +48,9 @@ export function registerTools(pi: ExtensionAPI, runtime: ToolRuntime): void {
       const connection = runtime.getConnection();
       if (!connection) return textResult("Not attached to Zulip; use /zulip-start first.");
       try {
-        const id = await connection.post(params.level, params.text, params.files ?? [], ctx.cwd);
-        return textResult(`Posted to the attached Zulip topic (message ${id}).`);
+        const files = params.files ?? [];
+        const id = await connection.post(params.level, params.text, files, ctx.cwd);
+        return textResult(formatPostResult(id, params.text, files));
       } catch (error) {
         return textResult(`Zulip post failed: ${safeError(error)}`);
       }
@@ -140,6 +141,11 @@ export function registerTools(pi: ExtensionAPI, runtime: ToolRuntime): void {
       }
     },
   });
+}
+
+export function formatPostResult(id: number, text: string, files: string[] = []): string {
+  const attachments = files.length ? `\n\nAttachments uploaded: ${files.join(", ")}` : "";
+  return `Posted to the attached Zulip topic (message ${id}):\n\n${text.trim()}${attachments}`;
 }
 
 function formatReadMessage(message: ZulipMessage): string {
