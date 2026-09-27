@@ -182,7 +182,7 @@ async function login(urlArg: string, ctx: ExtensionCommandContext): Promise<void
   ctx.ui.notify(`Logged in to ${host} as ${profile.full_name}. Notifications go to ${notifyUser.full_name}.${profile.is_admin || profile.is_owner ? "" : " Warning: this account is not an organization administrator; private bot provisioning may be unavailable."}`, "info");
 }
 
-async function startSession(rawArgs: string, ctx: ExtensionCommandContext, runtime: CommandRuntime): Promise<void> {
+export async function startSession(rawArgs: string, ctx: ExtensionContext, runtime: CommandRuntime): Promise<void> {
   const parsed = parseStartArgs(rawArgs);
   const servers = await readServerCredentials();
   if (!servers.length) throw new Error("Run /zulip-login first");
@@ -262,7 +262,7 @@ async function provisionProjectChannel(
   channelName: string,
   admin: ZulipClient,
   choices: ProjectBotChoice[],
-  ctx: ExtensionCommandContext,
+  ctx: ExtensionContext,
 ): Promise<BotCredential> {
   const profile = await admin.getProfile();
   if (!profile.is_admin && !profile.is_owner) throw new Error("The saved Zulip login must be an organization administrator to create a private project channel and bot");
@@ -324,7 +324,7 @@ async function attachToTopic(
   bot: BotCredential,
   channelName: string,
   providedTopic: string,
-  ctx: ExtensionCommandContext,
+  ctx: ExtensionContext,
   runtime: CommandRuntime,
 ): Promise<void> {
   const client = new ZulipClient(bot.baseUrl, bot.email, bot.apiKey);

@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { BotCredential, SessionAttachment } from "./types.ts";
-import { registerCommands, type CommandRuntime } from "./commands.ts";
+import { registerCommands, startSession, type CommandRuntime } from "./commands.ts";
 import { ZulipConnection } from "./session/connection.ts";
 import { readAttachmentFromBranch, persistAttachment } from "./session/state.ts";
 import { readBotCredential, readServerCredentials, saveBotCredential } from "./storage/credentials.ts";
@@ -102,7 +102,22 @@ class PiZulipRuntime implements CommandRuntime {
       this.attachment = state;
       this.connection = undefined;
       this.disableTools();
-      if (!state?.attached) return;
+      if (!state?.attached) {
+        if (event.reason === "startup") {
+          const servers = await readServerCredentials();
+          if (servers.length) {
+            const start = await ctx.ui.confirm("Start a Zulip session?", `You are logged in to ${servers.map((server) => server.host).join(", ")}. Choose a project channel and topic to attach this Pi session.`);
+            if (start) {
+              try {
+                await startSession("", ctx, this);
+              } catch (error) {
+                ctx.ui.notify(`Could not start Zulip session: ${safeError(error)}`, "error");
+              }
+            }
+          }
+        }
+        return;
+      }
       if (event.reason === "fork") {
         state.attached = false;
         persistAttachment(this.pi, state);
@@ -133,7 +148,8 @@ class PiZulipRuntime implements CommandRuntime {
         message: {
           customType: "pi-zulip-session",
           display: false,
-          content: `This Pi session is attached to Zulip #${this.attachment.channelName} > ${this.attachment.topic} on ${this.attachment.serverHost}. Handle only messages delivered from this exact topic. Use zulip_post for concise progress/blockers, zulip_status for the shared status and small decisions, zulip_ask for decisions that genuinely block work, and zulip_wait only when the current turn cannot proceed independently. Do not attach files unless the user explicitly requested sharing them.`,
+          content: `This Pi session is attached to Zulip #${this.attachment.channelName} > ${this.attachment.topic} on ${this.attachment.serverHost}. Handle only messages delivered from this exact topic. Use zulip_post for concise progress/blockers, zulip_status for the shared status and small decisions, zulip_ask for decisions that genuinely block work, and zulip_wait only when the current turn cannot proceed independently. Do not attach files unless the user explicitly requested sharing them. Before attaching, prefer PNG or JPEG for images and web-safe video encoded as H.264 with yuv420p pixel format. Keep each file at most 15 MiB and all files in one post at most 30 MiB (maximum five files); do not spend time uploading larger files. If a requested file exceeds these limits, explain and offer a smaller/compressed version.`,
+
         },
       };
     });

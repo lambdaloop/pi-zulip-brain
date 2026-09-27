@@ -12,7 +12,7 @@ export interface ToolRuntime {
 const postParams = Type.Object({
   level: Type.Union([Type.Literal("needs_you"), Type.Literal("milestone")], { description: "Blocking decision/issue or a meaningful milestone" }),
   text: Type.String({ minLength: 1, maxLength: 20000, description: "Concise update for the attached Zulip topic" }),
-  files: Type.Optional(Type.Array(Type.String(), { maxItems: 5, description: "Optional project-relative files explicitly requested for sharing" })),
+  files: Type.Optional(Type.Array(Type.String(), { maxItems: 5, description: "Optional project-relative files the user explicitly requested to share. Each may be at most 15 MiB; all files together may be at most 30 MiB. Prefer PNG/JPEG images and H.264 video with yuv420p; avoid uploading large files." })),
 });
 
 const readParams = Type.Object({
@@ -42,7 +42,7 @@ export function registerTools(pi: ExtensionAPI, runtime: ToolRuntime): void {
     label: "Zulip Post",
     description: "Post a message directly to this session's attached Zulip topic. Files included in the request are uploaded automatically.",
     promptSnippet: "Post an update to the currently attached Zulip topic.",
-    promptGuidelines: ["Post ordinary updates directly without a milestone header. Use needs_you only for a genuine blocker or important decision.", "Keep updates concise and link or attach details instead of pasting long output."],
+    promptGuidelines: ["Post ordinary updates directly without a milestone header. Use needs_you only for a genuine blocker or important decision.", "Keep updates concise and link or attach details instead of pasting long output.", "Attach files only when the user explicitly requests sharing them. Prefer PNG or JPEG images and web-safe video encoded as H.264 with yuv420p pixel format.", "Each attachment may be at most 15 MiB; the combined size of attachments in one post may be at most 30 MiB, with at most five files. Do not waste time uploading oversized files; explain the limit and offer a smaller/compressed version."],
     parameters: postParams,
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const connection = runtime.getConnection();
