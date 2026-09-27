@@ -4,9 +4,15 @@
   "description": "A Zulip integration extension for Pi coding-agent sessions",
   "license": "MIT",
   "type": "module",
-  "keywords": ["pi-package", "zulip", "pi-extension"],
+  "keywords": [
+    "pi-package",
+    "zulip",
+    "pi-extension"
+  ],
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": [
+      "./src/index.ts"
+    ]
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -14,13 +20,15 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.87.1",
+    "@earendil-works/pi-tui": "0.87.1",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
-    "typebox": "*"
+    "typebox": "*",
+    "typescript": "^5.7.0"
   }
 }

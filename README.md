@@ -49,4 +49,4 @@ Tests cover URL normalization, authentication and redaction, event-queue narrowi
 - Status-card edits are sent immediately rather than batched every 5–10 seconds.
 - `/zulip-start` does not tab-complete channel names.
 
-Pi and TypeBox are peer dependencies supplied by the Pi runtime. The package currently targets the extension APIs in Pi 0.87.1 and the Zulip REST API verified against Zulip 12.3. Push notifications, joining another live session's topic, and subagent posting are not included.
+Pi, Pi TUI, and TypeBox are peer dependencies supplied by the Pi runtime. The package currently targets the extension APIs in Pi 0.87.1 and the Zulip REST API verified against Zulip 12.3. Push notifications, joining another live session's topic, and subagent posting are not included.

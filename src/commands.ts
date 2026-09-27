@@ -5,6 +5,7 @@ import { renderStatusCard } from "./session/format.ts";
 import { ZulipConnection } from "./session/connection.ts";
 import { ZulipApiError, ZulipBotRecord, ZulipClient, normalizeServerUrl } from "./zulip/client.ts";
 import { readServerCredentials, saveBotCredential, saveServerCredentials, removeServerCredentials } from "./storage/credentials.ts";
+import { searchableSelect } from "./commands/picker.ts";
 
 export interface CommandRuntime {
   pi: ExtensionAPI;
@@ -208,7 +209,7 @@ export async function startSession(rawArgs: string, ctx: ExtensionContext, runti
   if (parsed.channel) selected = choices.find((choice) => choice.channelName.toLowerCase() === parsed.channel!.toLowerCase());
   else {
     const options = [...choices.map((choice) => choice.label), "➕ New private project channel…"];
-    const choice = await ctx.ui.select("Choose a Zulip project channel", options);
+    const choice = await searchableSelect(ctx, "Choose a Zulip project channel", options);
     if (!choice) return;
     if (choice === "➕ New private project channel…") {
       const name = (await ctx.ui.input("New private Zulip channel name", "my-project"))?.trim();
@@ -337,7 +338,7 @@ async function attachToTopic(
   let selectedExistingTopic = false;
   if (!topic) {
     const newTopicOption = "➕ New topic…";
-    const choice = await ctx.ui.select(`Choose a topic in #${channelName}`, [...topics.map((item) => item.name), newTopicOption]);
+    const choice = await searchableSelect(ctx, `Choose a topic in #${channelName}`, [...topics.map((item) => item.name), newTopicOption]);
     if (!choice) return;
     if (choice === newTopicOption) {
       topic = (await ctx.ui.input(`New topic in #${channelName}`, "Describe this session's task"))?.trim() ?? "";
