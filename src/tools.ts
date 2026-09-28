@@ -35,6 +35,10 @@ const askParams = Type.Object({
 });
 
 const waitParams = Type.Object({ question_id: Type.String({ minLength: 3, maxLength: 80 }) });
+const answerParams = Type.Object({
+  question_id: Type.String({ minLength: 3, maxLength: 80, description: "ID returned by zulip_ask" }),
+  answer: Type.String({ minLength: 1, maxLength: 2000, description: "Human's answer to record; use only when a human reply actually answers this question" }),
+});
 
 export function registerTools(pi: ExtensionAPI, runtime: ToolRuntime): void {
   pi.registerTool({
@@ -128,17 +132,37 @@ export function registerTools(pi: ExtensionAPI, runtime: ToolRuntime): void {
   });
 
   pi.registerTool({
+    name: "zulip_answer",
+    label: "Resolve Zulip Question",
+    description: "Mark an open Zulip question as answered. Use when a human's new topic message answers the question but does not reference its ID or use a numbered reaction. Do not resolve it for unrelated messages.",
+    promptSnippet: "Record a human reply as the answer to an open Zulip question.",
+    parameters: answerParams,
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      const connection = runtime.getConnection();
+      if (!connection) return textResult("Not attached to Zulip; use /zulip-start first.");
+      try {
+        const result = connection.resolveQuestion(params.question_id, params.answer);
+        return textResult(result.resolved
+          ? `Marked Zulip question ${params.question_id} answered: ${result.answer}`
+          : `Zulip question ${params.question_id} was already answered: ${result.answer}`);
+      } catch (error) {
+        return textResult(`Could not resolve Zulip question: ${safeError(error)}`);
+      }
+    },
+  });
+
+  pi.registerTool({
     name: "zulip_wait",
     label: "Wait for Zulip Answer",
-    description: "Wait without a timeout for a previously asked Zulip question. Use only when the current turn cannot continue independently.",
-    promptSnippet: "Wait for a human answer to a specific open Zulip question.",
+    description: "Wait without a timeout for a previously asked Zulip question. Resolves when that question is answered or a new human message arrives in this attached topic. Use only when the current turn cannot continue independently.",
+    promptSnippet: "Wait for a human answer or next message in the attached Zulip topic.",
     parameters: waitParams,
     async execute(_id, params, signal, _onUpdate, _ctx) {
       const connection = runtime.getConnection();
       if (!connection) return textResult("Not attached to Zulip; cannot wait for an answer.");
       try {
         const answer = await connection.waitForQuestion(params.question_id, signal);
-        return textResult(`Human answered ${params.question_id}: ${answer}`);
+        return textResult(`Zulip wait for ${params.question_id} ended: ${answer}`);
       } catch (error) {
         return textResult(`Zulip wait ended: ${safeError(error)}`);
       }

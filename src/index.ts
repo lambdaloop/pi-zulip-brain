@@ -7,7 +7,7 @@ import { readBotCredential, readServerCredentials, saveBotCredential } from "./s
 import { ZulipClient } from "./zulip/client.ts";
 import { registerTools } from "./tools.ts";
 
-const ZULIP_TOOLS = ["zulip_post", "zulip_read", "zulip_status", "zulip_ask", "zulip_wait"];
+const ZULIP_TOOLS = ["zulip_post", "zulip_read", "zulip_status", "zulip_ask", "zulip_wait", "zulip_answer"];
 
 export default function(pi: ExtensionAPI): void {
   const runtime = new PiZulipRuntime(pi);

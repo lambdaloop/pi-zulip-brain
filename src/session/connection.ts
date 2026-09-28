@@ -125,6 +125,16 @@ export class ZulipConnection {
     });
   }
 
+  resolveQuestion(questionId: string, answer: string): { resolved: boolean; answer: string } {
+    const question = this.options.state.openQuestions.find((item) => item.id === questionId);
+    if (!question) throw new Error(`No Zulip question with ID ${questionId}`);
+    if (question.answer) return { resolved: false, answer: question.answer };
+    const normalizedAnswer = answer.trim();
+    if (!normalizedAnswer) throw new Error("An answer is required to resolve a Zulip question");
+    this.answerQuestion(questionId, normalizedAnswer);
+    return { resolved: true, answer: normalizedAnswer };
+  }
+
   async createQuestion(question: string, options: string[], recommendedIndex?: number): Promise<{ id: string; reactionsAdded: number; reactionErrors: string[] }> {
     const id = `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     const state = this.options.state;
@@ -331,7 +341,9 @@ export class ZulipConnection {
     if (!sender || sender.is_bot) return;
     const question = state.openQuestions.find((item) => !item.answer && messagePlainText(message).includes(item.id));
     if (question && this.waiters.has(question.id)) {
-      this.answerQuestion(question.id, `${sender.full_name}: ${messagePlainText(message)}`);
+      const text = messagePlainText(message);
+      this.answerQuestion(question.id, `${sender.full_name}: ${text}`);
+      this.resolveWaitersForTopicMessage(`${sender.full_name}: ${text}`);
       if (!(await this.addReceipt(message.id, signal))) {
         this.notify("Zulip answer reached the waiting tool, but its 📨 delivery receipt could not be added.", "warning");
       }
@@ -339,7 +351,9 @@ export class ZulipConnection {
     }
     const extra = question ? `Reply to decision ${question.id}.` : undefined;
     const delivered = await this.deliverBatch([message], new Map([[sender.user_id, sender]]), extra ? new Map([[message.id, extra]]) : undefined);
-    if (question && delivered) this.answerQuestion(question.id, messagePlainText(message));
+    const text = messagePlainText(message);
+    if (question && delivered) this.answerQuestion(question.id, text);
+    this.resolveWaitersForTopicMessage(`${sender.full_name}: ${text}`);
   }
 
   private async handleReaction(event: ZulipEvent, signal: AbortSignal): Promise<void> {
@@ -356,6 +370,7 @@ export class ZulipConnection {
     const answer = `${optionIndex + 1}. ${question.options[optionIndex]}`;
     if (this.waiters.has(question.id)) {
       this.answerQuestion(question.id, `${sender.full_name}: ${answer}`);
+      this.resolveWaitersForTopicMessage(`${sender.full_name}: ${answer}`);
       persistAttachment(this.options.pi, this.options.state);
       return;
     }
@@ -364,6 +379,7 @@ export class ZulipConnection {
         ...(this.options.getContext().isIdle() ? {} : { deliverAs: "steer" as const }),
       });
       this.answerQuestion(question.id, answer);
+      this.resolveWaitersForTopicMessage(`${sender.full_name}: ${answer}`);
       persistAttachment(this.options.pi, this.options.state);
     } catch (error) {
       this.notify(`Pi could not enqueue a Zulip decision: ${safeError(error)}`, "error");
@@ -374,8 +390,7 @@ export class ZulipConnection {
     const question = this.options.state.openQuestions.find((item) => item.id === questionId);
     if (!question || question.answer) return;
     question.answer = answer;
-    const listeners = this.waiters.get(questionId);
-    if (listeners) for (const resolve of [...listeners]) resolve(answer);
+    this.resolveWaiters(questionId, answer);
     if (this.options.state.statusCard.status.startsWith("⏸ waiting on you:")) {
       this.options.state.statusCard.status = "working";
     }
@@ -554,9 +569,17 @@ export class ZulipConnection {
     this.options.getContext().ui.notify(message, level);
   }
 
+  private resolveWaiters(questionId: string, message: string): void {
+    const listeners = this.waiters.get(questionId);
+    if (listeners) for (const resolve of [...listeners]) resolve(message);
+  }
+
+  private resolveWaitersForTopicMessage(message: string): void {
+    for (const questionId of [...this.waiters.keys()]) this.resolveWaiters(questionId, `New message in the attached Zulip topic: ${message}`);
+  }
+
   private resolveAllWaiters(message: string): void {
-    for (const [id, listeners] of this.waiters) for (const resolve of [...listeners]) resolve(message);
-    this.waiters.clear();
+    for (const questionId of [...this.waiters.keys()]) this.resolveWaiters(questionId, message);
   }
 }
 
