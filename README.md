@@ -21,7 +21,7 @@ Only an attached session has Zulip tools. Use `/zulip-stop` to detach. An explic
 - `zulip_wait`: wait for a question's answer or the next human topic message.
 - `zulip_answer`: record an untagged human reply as the answer to a question.
 
-Human messages are delivered only after channel, topic, sender, and duplicate checks pass. A 📨 (`mail_received`) reaction means the message was queued to Pi; ✅ (`white_check_mark`) is added when Pi begins processing it.
+Human messages are delivered only after channel, topic, sender, and duplicate checks pass. A 📨 (`mail_received`) reaction means the message was queued to Pi; ✅ (`check`) is added when Pi begins processing it.
 
 ## Security
 

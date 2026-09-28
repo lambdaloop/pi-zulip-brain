@@ -84,7 +84,7 @@ test("adds the processed reaction only when Pi starts the queued Zulip user mess
   assert.deepEqual(reactions, ["mail_received"]);
   onMessageStart({ message: { role: "user", content: sentMessages[0] } });
   await new Promise<void>((resolve) => setImmediate(resolve));
-  assert.deepEqual(reactions, ["mail_received", "white_check_mark"]);
+  assert.deepEqual(reactions, ["mail_received", "check"]);
 });
 
 test("agent can record an untagged human reply as a question answer", () => {

@@ -426,8 +426,9 @@ export class ZulipConnection {
 
   private async addConversationReaction(messageId: number): Promise<void> {
     const signal = this.controller?.signal;
-    if (!(await this.addReactionWithRetry(messageId, CONVERSATION_REACTION, signal)) && !signal?.aborted) {
-      this.notify("Zulip message entered Pi's conversation, but the ✅ reaction could not be added.", "warning");
+    const error = await this.addReactionWithRetry(messageId, CONVERSATION_REACTION, signal);
+    if (error && !signal?.aborted) {
+      this.notify(`Zulip message entered Pi's conversation, but the ✅ reaction could not be added: ${error}`, "warning");
     }
   }
 
@@ -509,22 +510,24 @@ export class ZulipConnection {
   }
 
   private async addReceipt(messageId: number, signal = this.controller?.signal): Promise<boolean> {
-    return this.addReactionWithRetry(messageId, DELIVERY_REACTION, signal);
+    return (await this.addReactionWithRetry(messageId, DELIVERY_REACTION, signal)) === undefined;
   }
 
-  private async addReactionWithRetry(messageId: number, emojiName: string, signal?: AbortSignal): Promise<boolean> {
+  private async addReactionWithRetry(messageId: number, emojiName: string, signal?: AbortSignal): Promise<string | undefined> {
+    let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         await this.client.addReaction(messageId, emojiName, signal);
-        return true;
+        return undefined;
       } catch (error) {
         // Zulip reports an error if the reaction already exists; treat that as delivered.
-        if (error instanceof ZulipApiError && /already/i.test(error.message)) return true;
-        if (signal?.aborted || (error instanceof ZulipApiError && !error.isRetryable)) return false;
+        if (error instanceof ZulipApiError && /already/i.test(error.message)) return undefined;
+        lastError = error;
+        if (signal?.aborted || (error instanceof ZulipApiError && !error.isRetryable)) return safeError(error);
         if (signal) await sleep(attempt + 1, signal);
       }
     }
-    return false;
+    return safeError(lastError);
   }
 
   private async fetchMissedMessages(signal: AbortSignal): Promise<ZulipMessage[]> {
