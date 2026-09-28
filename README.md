@@ -21,7 +21,7 @@ Only an attached session has Zulip tools. Use `/zulip-stop` to detach. An explic
 - `zulip_wait`: wait for a question's answer or the next human topic message.
 - `zulip_answer`: record an untagged human reply as the answer to a question.
 
-Human messages are delivered only after channel, topic, sender, and duplicate checks pass. A 📨 (`mail_received`) reaction means the message was queued to Pi, not that the agent acted on it.
+Human messages are delivered only after channel, topic, sender, and duplicate checks pass. A 📨 (`mail_received`) reaction means the message was queued to Pi; ✅ (`white_check_mark`) is added when Pi begins processing it.
 
 ## Security
 
@@ -40,7 +40,7 @@ Tests cover URL normalization, authentication and redaction, event-queue narrowi
 ### Manual end-to-end checklist
 
 1. `/zulip-login`, then `/zulip-start pi-test first topic` — a status card appears and `/zulip-status` shows `connected`.
-2. Post from Zulip in that topic — the agent receives it and the message gets 📨. A message in another topic is ignored.
+2. Post from Zulip in that topic — the message gets 📨 when queued and ✅ when Pi starts processing it. A message in another topic is ignored.
 3. Ask the agent to call `zulip_ask`; answer with 1️⃣ — the decision reaches Pi.
 4. `/zulip-resolve`, then `/zulip-resolve --undo` — the topic gains, then loses, the `✔ ` prefix.
 5. Quit Pi, post in Zulip, resume the session — a backlog preview appears before delivery.

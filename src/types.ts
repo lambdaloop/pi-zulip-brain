@@ -138,4 +138,5 @@ export type PiContent = TextContent | ImageContent;
 
 export const EVENT_TYPES = ["message", "update_message", "reaction"] as const;
 export const DELIVERY_REACTION = "mail_received";
+export const CONVERSATION_REACTION = "white_check_mark";
 export const RESOLVED_PREFIX = "✔ ";

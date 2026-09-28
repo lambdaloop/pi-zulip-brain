@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { BotCredential, EventQueue, ImageContent, OpenQuestion, PiContent, SessionAttachment, ZulipEvent, ZulipMessage, ZulipUser } from "../types.ts";
-import { DELIVERY_REACTION, RESOLVED_PREFIX } from "../types.ts";
+import { CONVERSATION_REACTION, DELIVERY_REACTION, RESOLVED_PREFIX } from "../types.ts";
 import { ZulipApiError, ZulipClient } from "../zulip/client.ts";
 import { addOwnedMessage, persistAttachment } from "./state.ts";
 import { attachmentMimeType, formatIncomingMessage, formatOutbound, isImageAttachment, messagePlainText } from "./format.ts";
@@ -33,11 +33,16 @@ export class ZulipConnection {
   private loop?: Promise<void>;
   private readonly users = new Map<number, ZulipUser>();
   private readonly deliveredIds = new Set<number>();
+  private readonly pendingConversationMessages = new Map<number, string>();
   private readonly waiters = new Map<string, Set<(answer: string) => void>>();
+  private unsubscribeMessageStart?: () => void;
   private connected = false;
 
   constructor(private readonly options: ConnectionOptions) {
     this.client = new ZulipClient(options.bot.baseUrl, options.bot.email, options.bot.apiKey);
+    this.unsubscribeMessageStart = options.pi.on("message_start", (event) => {
+      if (event.message.role === "user") this.handlePiMessageStart(event.message);
+    });
   }
 
   get isConnected(): boolean {
@@ -46,6 +51,9 @@ export class ZulipConnection {
 
   async start(options: { previewBacklog?: boolean } = {}): Promise<boolean> {
     if (this.loop || this.controller) return true;
+    this.unsubscribeMessageStart ??= this.options.pi.on("message_start", (event) => {
+      if (event.message.role === "user") this.handlePiMessageStart(event.message);
+    });
     this.controller = new AbortController();
     const signal = this.controller.signal;
     try {
@@ -84,6 +92,9 @@ export class ZulipConnection {
     } catch (error) {
       this.controller.abort();
       this.controller = undefined;
+      this.unsubscribeMessageStart?.();
+      this.unsubscribeMessageStart = undefined;
+      this.pendingConversationMessages.clear();
       this.connected = false;
       this.options.onConnectionChange?.(false);
       throw error;
@@ -93,6 +104,9 @@ export class ZulipConnection {
   async stop(): Promise<void> {
     this.controller?.abort();
     this.controller = undefined;
+    this.unsubscribeMessageStart?.();
+    this.unsubscribeMessageStart = undefined;
+    this.pendingConversationMessages.clear();
     this.queue = undefined;
     this.connected = false;
     this.options.onConnectionChange?.(false);
@@ -398,6 +412,25 @@ export class ZulipConnection {
     void this.refreshStatusCard();
   }
 
+  private handlePiMessageStart(message: { role: string; content: unknown }): void {
+    if (message.role !== "user" || !Array.isArray(message.content)) return;
+    const textParts = message.content.filter((part): part is { type: "text"; text: string } =>
+      typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string",
+    );
+    for (const [messageId, expectedText] of this.pendingConversationMessages) {
+      if (!textParts.some((part) => part.text.includes(expectedText))) continue;
+      this.pendingConversationMessages.delete(messageId);
+      void this.addConversationReaction(messageId);
+    }
+  }
+
+  private async addConversationReaction(messageId: number): Promise<void> {
+    const signal = this.controller?.signal;
+    if (!(await this.addReactionWithRetry(messageId, CONVERSATION_REACTION, signal)) && !signal?.aborted) {
+      this.notify("Zulip message entered Pi's conversation, but the ✅ reaction could not be added.", "warning");
+    }
+  }
+
   private async deliverBatch(
     messages: ZulipMessage[],
     knownUsers = new Map<number, ZulipUser>(),
@@ -418,11 +451,14 @@ export class ZulipConnection {
 
     const content: PiContent[] = [];
     const ackIds: number[] = [];
+    const pendingConversationMessages = new Map<number, string>();
     let downloadedImageBytes = 0;
     for (const message of accepted) {
       const user = userById.get(message.sender_id);
       const prefix = extras.get(message.id);
-      content.push({ type: "text", text: formatIncomingMessage(message, user, this.options.state.channelName, this.options.state.topic, prefix) });
+      const incomingText = formatIncomingMessage(message, user, this.options.state.channelName, this.options.state.topic, prefix);
+      content.push({ type: "text", text: incomingText });
+      pendingConversationMessages.set(message.id, incomingText);
       let imageCount = 0;
       for (const attachment of message.attachments ?? []) {
         if (imageCount >= MAX_IMAGES_PER_MESSAGE || downloadedImageBytes >= MAX_BATCH_IMAGE_BYTES) break;
@@ -444,11 +480,18 @@ export class ZulipConnection {
       ackIds.push(message.id);
     }
 
+    for (const [id, text] of pendingConversationMessages) this.pendingConversationMessages.set(id, text);
+    while (this.pendingConversationMessages.size > 1000) {
+      const oldestId = this.pendingConversationMessages.keys().next().value;
+      if (oldestId === undefined) break;
+      this.pendingConversationMessages.delete(oldestId);
+    }
     try {
       this.options.pi.sendUserMessage(content, {
         ...(this.options.getContext().isIdle() ? {} : { deliverAs: "steer" as const }),
       });
     } catch (error) {
+      for (const id of pendingConversationMessages.keys()) this.pendingConversationMessages.delete(id);
       this.notify(`Pi could not enqueue a Zulip message: ${safeError(error)}`, "error");
       return false;
     }
@@ -466,9 +509,13 @@ export class ZulipConnection {
   }
 
   private async addReceipt(messageId: number, signal = this.controller?.signal): Promise<boolean> {
+    return this.addReactionWithRetry(messageId, DELIVERY_REACTION, signal);
+  }
+
+  private async addReactionWithRetry(messageId: number, emojiName: string, signal?: AbortSignal): Promise<boolean> {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        await this.client.addReaction(messageId, DELIVERY_REACTION, signal);
+        await this.client.addReaction(messageId, emojiName, signal);
         return true;
       } catch (error) {
         // Zulip reports an error if the reaction already exists; treat that as delivered.

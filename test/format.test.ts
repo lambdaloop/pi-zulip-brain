@@ -20,7 +20,7 @@ test("HTML is converted to readable bounded plain text", () => {
 
 test("incoming messages are labeled and include safe attachment metadata", () => {
   const formatted = formatIncomingMessage(message, { full_name: "Human" }, "project", "build tests");
-  assert.match(formatted, /Human in #project > build tests/);
+  assert.match(formatted, /Human in #project > build tests · message 21/);
   assert.match(formatted, /Hello agent/);
   assert.match(formatted, /screen\.png, 1\.0 KiB/);
 });

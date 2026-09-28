@@ -40,7 +40,7 @@ export function formatIncomingMessage(
   const attachments = (message.attachments ?? []).map((attachment) => formatAttachment(attachment)).filter(Boolean);
   const suffix = attachments.length ? `\nAttachments: ${attachments.join(", ")}` : "";
   const prefix = extra ? `${extra}\n` : "";
-  return `${prefix}[Zulip steering — ${senderName(message, sender)} in #${channelName} > ${topic}]\n${body}${suffix}`;
+  return `${prefix}[Zulip steering — ${senderName(message, sender)} in #${channelName} > ${topic} · message ${message.id}]\n${body}${suffix}`;
 }
 
 export function formatAttachment(attachment: ZulipAttachment): string {

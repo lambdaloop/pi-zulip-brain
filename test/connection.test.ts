@@ -26,7 +26,16 @@ function createConnection() {
     ],
     updatedAt: new Date(0).toISOString(),
   };
-  const pi = { appendEntry() {} } as unknown as ExtensionAPI;
+  const messageStartHandlers: Array<(event: { message: { role: string; content: unknown } }) => void> = [];
+  const sentMessages: unknown[][] = [];
+  const pi = {
+    appendEntry() {},
+    on(event: string, handler: (event: { message: { role: string; content: unknown } }) => void) {
+      if (event === "message_start") messageStartHandlers.push(handler);
+      return () => undefined;
+    },
+    sendUserMessage(content: unknown[]) { sentMessages.push(content); },
+  } as unknown as ExtensionAPI;
   const connection = new ZulipConnection({
     pi,
     state,
@@ -35,16 +44,18 @@ function createConnection() {
   });
   const internals = connection as unknown as {
     getUser: (userId: number, signal?: AbortSignal) => Promise<ZulipUser>;
-    deliverBatch: () => Promise<boolean>;
-    addReceipt: () => Promise<boolean>;
+    deliverBatch: (messages: ZulipMessage[]) => Promise<boolean>;
+    addReceipt: (messageId: number) => Promise<boolean>;
     refreshStatusCard: () => Promise<void>;
     handleMessage: (message: ZulipMessage, signal: AbortSignal) => Promise<void>;
   };
+  const actualDeliverBatch = internals.deliverBatch.bind(connection);
+  const actualAddReceipt = internals.addReceipt.bind(connection);
   internals.getUser = async (userId) => ({ user_id: userId, email: "human@example.com", full_name: "Human" });
   internals.deliverBatch = async () => true;
   internals.addReceipt = async () => true;
   internals.refreshStatusCard = async () => undefined;
-  return { connection, internals, state };
+  return { connection, internals, actualDeliverBatch, actualAddReceipt, messageStartHandlers, sentMessages, state };
 }
 
 function message(content: string): ZulipMessage {
@@ -57,6 +68,24 @@ function message(content: string): ZulipMessage {
     content,
   };
 }
+
+test("adds the processed reaction only when Pi starts the queued Zulip user message", async () => {
+  const { connection, internals, actualDeliverBatch, actualAddReceipt, messageStartHandlers, sentMessages } = createConnection();
+  internals.addReceipt = actualAddReceipt;
+  const reactions: string[] = [];
+  const client = (connection as unknown as { client: { addReaction: (messageId: number, name: string) => Promise<void> } }).client;
+  client.addReaction = async (_messageId, name) => { reactions.push(name); };
+  await actualDeliverBatch([message("Please check this queued message")]);
+  assert.deepEqual(reactions, ["mail_received"]);
+
+  const onMessageStart = messageStartHandlers[0];
+  assert.ok(onMessageStart);
+  onMessageStart({ message: { role: "user", content: [{ type: "text", text: "unrelated prompt" }] } });
+  assert.deepEqual(reactions, ["mail_received"]);
+  onMessageStart({ message: { role: "user", content: sentMessages[0] } });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(reactions, ["mail_received", "white_check_mark"]);
+});
 
 test("agent can record an untagged human reply as a question answer", () => {
   const { connection, state } = createConnection();
