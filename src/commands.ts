@@ -5,7 +5,10 @@ import { renderStatusCard } from "./session/format.ts";
 import { ZulipConnection } from "./session/connection.ts";
 import { ZulipApiError, ZulipBotRecord, ZulipClient, normalizeServerUrl } from "./zulip/client.ts";
 import { readServerCredentials, saveBotCredential, saveServerCredentials, removeServerCredentials } from "./storage/credentials.ts";
-import { searchableSelect } from "./commands/picker.ts";
+import { searchableSelect, searchableSelectItems } from "./commands/picker.ts";
+import { describeTopicSession, findTopicSessions, sessionDirectories, setRestoreHandoff, topicLabel } from "./session/catalog.ts";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { join, resolve } from "node:path";
 
 export interface CommandRuntime {
   pi: ExtensionAPI;
@@ -14,6 +17,8 @@ export interface CommandRuntime {
   attach(state: SessionAttachment, bot: BotCredential, ctx: ExtensionContext, previewBacklog?: boolean): Promise<void>;
   detach(ctx: ExtensionContext, postLine: boolean): Promise<void>;
   setAttachment(state: SessionAttachment | undefined): void;
+  /** Reconnect this session's saved attachment (restoring bot credentials) and preview missed messages. */
+  reattach(state: SessionAttachment, ctx: ExtensionContext): Promise<void>;
 }
 
 const PROJECT_CHANNEL_DESCRIPTION = "Private project channel for the Pi Zulip extension.";
@@ -104,6 +109,17 @@ export function registerCommands(runtime: CommandRuntime): void {
     },
   });
 
+  pi.registerCommand("zulip-restore", {
+    description: "Search Zulip #channel > topic attachments and resume the Pi session responsible for one",
+    handler: async (args, ctx) => {
+      try {
+        await restoreSession(args.trim(), ctx, runtime);
+      } catch (error) {
+        ctx.ui.notify(`Could not restore Zulip session: ${safeError(error)}`, "error");
+      }
+    },
+  });
+
   pi.registerCommand("zulip-status", {
     description: "Show this session's Zulip attachment and delivery state",
     handler: async (_args, ctx) => {
@@ -114,6 +130,47 @@ export function registerCommands(runtime: CommandRuntime): void {
       ctx.ui.notify(`Detached from ${state.serverHost} #${state.channelName} > ${state.topic}\nStatus: ${state.statusCard.status}`, "info");
     },
   });
+}
+
+async function restoreSession(query: string, ctx: ExtensionCommandContext, runtime: CommandRuntime): Promise<void> {
+  const currentFile = ctx.sessionManager.getSessionFile();
+  const dirs = await sessionDirectories(join(getAgentDir(), "sessions"), [ctx.sessionManager.getSessionDir()]);
+  const sessions = await findTopicSessions(dirs);
+  if (!sessions.length) return ctx.ui.notify("No Pi sessions attached to a Zulip topic were found.", "info");
+  const now = new Date();
+  const items = sessions.map((session) => ({
+    value: session.path,
+    label: topicLabel(session.state),
+    description: describeTopicSession(session, now, currentFile),
+  }));
+  const picked = await searchableSelectItems(ctx, "Restore the Pi session for a Zulip topic", items, { initialQuery: query });
+  const session = sessions.find((item) => item.path === picked);
+  if (!session) return;
+  const label = topicLabel(session.state);
+
+  if (currentFile && resolve(currentFile) === resolve(session.path)) {
+    if (runtime.getConnection()?.isConnected) return ctx.ui.notify(`This session is already attached to ${label}.`, "info");
+    const state = runtime.getAttachment() ?? session.state;
+    await runtime.reattach(state, ctx);
+    if (runtime.getConnection()?.isConnected) ctx.ui.notify(`Reattached to ${label}.`, "info");
+    return;
+  }
+
+  await ctx.waitForIdle();
+  setRestoreHandoff(session.path);
+  let result: { cancelled: boolean };
+  try {
+    result = await ctx.switchSession(session.path, {
+      withSession: async (next) => next.ui.notify(`Restored the Pi session for ${label}.`, "info"),
+    });
+  } catch (error) {
+    setRestoreHandoff(undefined);
+    throw error;
+  }
+  if (result.cancelled) {
+    setRestoreHandoff(undefined);
+    ctx.ui.notify("Session restore was cancelled.", "info");
+  }
 }
 
 async function login(urlArg: string, ctx: ExtensionCommandContext): Promise<void> {

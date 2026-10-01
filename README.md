@@ -12,6 +12,8 @@ Restart Pi, then run `/zulip-login https://your-zulip.example` and `/zulip-start
 
 Only an attached session has Zulip tools. Use `/zulip-stop` to detach. An explicitly attached session reconnects when resumed; missed messages are previewed before delivery.
 
+Use `/zulip-restore [search]` to find the Pi session behind a Zulip topic. It lists every saved Pi session (across all projects) that was attached to a topic, as `#channel > topic`, newest first, with the server, working directory, and last activity. Type to fuzzy search, then press Enter to switch to that session and reattach it to its topic, even if it had been detached with `/zulip-stop`. Forked copies of a session are hidden.
+
 ## Agent tools
 
 - `zulip_post`: concise milestone or blocking update to the attached topic.

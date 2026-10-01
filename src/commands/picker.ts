@@ -2,28 +2,57 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import { Container, fuzzyFilter, Input, SelectList, Spacer, Text, type SelectItem } from "@earendil-works/pi-tui";
 
+/** Labels for plain select dialogs: append the description and disambiguate repeated labels. */
+export function uniqueFallbackLabels(items: SelectItem[]): string[] {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const base = item.description ? `${item.label} — ${item.description}` : item.label;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return count > 1 ? `${base} (${count})` : base;
+  });
+}
+
 export function wrapSelectionIndex(index: number, direction: -1 | 1, count: number): number {
   if (count <= 0) return 0;
   return (index + direction + count) % count;
 }
 
 export async function searchableSelect(ctx: ExtensionContext, title: string, options: string[]): Promise<string | undefined> {
-  if (!options.length) return undefined;
-  if (ctx.mode !== "tui") return ctx.ui.select(title, options);
+  return searchableSelectItems(ctx, title, options.map((value) => ({ value, label: value })));
+}
 
-  const items: SelectItem[] = options.map((value) => ({ value, label: value }));
+/** Fuzzy-searchable picker over items with optional descriptions; returns the selected item's value. */
+export async function searchableSelectItems(
+  ctx: ExtensionContext,
+  title: string,
+  items: SelectItem[],
+  options: { initialQuery?: string } = {},
+): Promise<string | undefined> {
+  if (!items.length) return undefined;
+  if (ctx.mode !== "tui") {
+    const labels = uniqueFallbackLabels(items);
+    const picked = await ctx.ui.select(title, labels);
+    return picked === undefined ? undefined : items[labels.indexOf(picked)]?.value;
+  }
+
   return ctx.ui.custom<string | undefined>((tui, theme, keybindings, done) => {
     const container = new Container();
     const searchInput = new Input({ placeholder: "Type to fuzzy search…" });
     searchInput.focused = true;
+    if (options.initialQuery) searchInput.setValue(options.initialQuery);
     let filteredItems = items;
     let selectedIndex = 0;
     let selectList: SelectList | undefined;
 
-    const updateList = () => {
+    const filter = () => {
       const query = searchInput.getValue();
       filteredItems = query ? fuzzyFilter(items, query, (item) => item.label) : items;
       selectedIndex = 0;
+    };
+
+    const updateList = () => {
+      filter();
       renderContent();
       tui.requestRender();
     };
@@ -55,6 +84,7 @@ export async function searchableSelect(ctx: ExtensionContext, title: string, opt
       container.addChild(new DynamicBorder((text) => theme.fg("accent", text)));
     };
 
+    filter();
     renderContent();
     return {
       render(width: number) {

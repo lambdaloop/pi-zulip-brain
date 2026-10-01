@@ -31,7 +31,7 @@ test("registers commands and five dynamically gated tools without starting netwo
 
   extension(api);
   assert.deepEqual(tools.sort(), ["zulip_answer", "zulip_ask", "zulip_post", "zulip_read", "zulip_status", "zulip_wait"]);
-  assert.deepEqual(commands.sort(), ["zulip-login", "zulip-logout", "zulip-resolve", "zulip-start", "zulip-status", "zulip-stop"]);
+  assert.deepEqual(commands.sort(), ["zulip-login", "zulip-logout", "zulip-resolve", "zulip-restore", "zulip-start", "zulip-status", "zulip-stop"]);
   assert.deepEqual(activeTools, ["read", "bash"]);
   assert.deepEqual(events.sort(), ["before_agent_start", "session_shutdown", "session_start"]);
 });

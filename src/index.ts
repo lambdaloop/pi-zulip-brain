@@ -3,6 +3,7 @@ import type { BotCredential, SessionAttachment } from "./types.ts";
 import { registerCommands, startSession, type CommandRuntime } from "./commands.ts";
 import { ZulipConnection } from "./session/connection.ts";
 import { readAttachmentFromBranch, persistAttachment } from "./session/state.ts";
+import { takeRestoreHandoff } from "./session/catalog.ts";
 import { readBotCredential, readServerCredentials, saveBotCredential } from "./storage/credentials.ts";
 import { ZulipClient } from "./zulip/client.ts";
 import { registerTools } from "./tools.ts";
@@ -102,6 +103,8 @@ class PiZulipRuntime implements CommandRuntime {
       this.attachment = state;
       this.connection = undefined;
       this.disableTools();
+      // /zulip-restore switched here on purpose: reattach even if the session was detached.
+      if (takeRestoreHandoff(ctx.sessionManager.getSessionFile()) && state && event.reason === "resume") state.attached = true;
       if (!state?.attached) {
         if (event.reason === "startup") {
           const servers = await readServerCredentials();
@@ -124,17 +127,7 @@ class PiZulipRuntime implements CommandRuntime {
         ctx.ui.notify("This Pi session was forked from a Zulip-attached session. It will not share that live topic; use /zulip-start to create or select a separate topic.", "warning");
         return;
       }
-      try {
-        const bot = await this.restoreBot(state);
-        if (!bot) throw new Error("Saved bot credentials are missing; run /zulip-login and /zulip-start again");
-        await this.attach(state, bot, ctx, true);
-      } catch (error) {
-        state.attached = false;
-        persistAttachment(this.pi, state);
-        this.connection = undefined;
-        this.disableTools();
-        ctx.ui.notify(`Could not resume Zulip topic #${state.channelName} > ${state.topic}: ${safeError(error)}. The session is detached.`, "warning");
-      }
+      await this.reattach(state, ctx);
     });
 
     this.pi.on("session_shutdown", async (_event) => {
@@ -153,6 +146,22 @@ class PiZulipRuntime implements CommandRuntime {
         },
       };
     });
+  }
+
+  async reattach(state: SessionAttachment, ctx: ExtensionContext): Promise<void> {
+    this.context = ctx;
+    this.attachment = state;
+    try {
+      const bot = await this.restoreBot(state);
+      if (!bot) throw new Error("Saved bot credentials are missing; run /zulip-login and /zulip-start again");
+      await this.attach(state, bot, ctx, true);
+    } catch (error) {
+      state.attached = false;
+      persistAttachment(this.pi, state);
+      this.connection = undefined;
+      this.disableTools();
+      ctx.ui.notify(`Could not resume Zulip topic #${state.channelName} > ${state.topic}: ${safeError(error)}. The session is detached.`, "warning");
+    }
   }
 
   private async pauseForShutdown(ctx: ExtensionContext): Promise<void> {
