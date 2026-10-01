@@ -1,6 +1,6 @@
 {
   "name": "pi-zulip-brain",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A Zulip integration extension for Pi coding-agent sessions",
   "license": "MIT",
   "type": "module",
