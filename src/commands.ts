@@ -6,7 +6,7 @@ import { ZulipConnection } from "./session/connection.ts";
 import { ZulipApiError, ZulipBotRecord, ZulipClient, normalizeServerUrl } from "./zulip/client.ts";
 import { readServerCredentials, saveBotCredential, saveServerCredentials, removeServerCredentials } from "./storage/credentials.ts";
 import { searchableSelect, searchableSelectItems } from "./commands/picker.ts";
-import { describeTopicSession, findTopicSessions, sessionDirectories, setRestoreHandoff, topicLabel } from "./session/catalog.ts";
+import { describeTopicSession, findTopicSessions, sessionDirectories, setRestoreHandoff, topicLabel, type TopicSession } from "./session/catalog.ts";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { join, resolve } from "node:path";
 
@@ -132,11 +132,25 @@ export function registerCommands(runtime: CommandRuntime): void {
   });
 }
 
-async function restoreSession(query: string, ctx: ExtensionCommandContext, runtime: CommandRuntime): Promise<void> {
+/** Prefix for the internal form `/zulip-restore --session <path>` used to switch without showing the picker. */
+export const RESTORE_SESSION_FLAG = "--session ";
+
+async function listTopicSessions(ctx: ExtensionContext): Promise<TopicSession[]> {
+  return findTopicSessions(await sessionDirectories(join(getAgentDir(), "sessions"), [ctx.sessionManager.getSessionDir()]));
+}
+
+export async function hasTopicSessions(ctx: ExtensionContext): Promise<boolean> {
+  return listTopicSessions(ctx).then((sessions) => sessions.length > 0, () => false);
+}
+
+/** Show the searchable #channel > topic picker; returns the chosen session, if any. */
+export async function pickTopicSession(ctx: ExtensionContext, query = ""): Promise<TopicSession | undefined> {
   const currentFile = ctx.sessionManager.getSessionFile();
-  const dirs = await sessionDirectories(join(getAgentDir(), "sessions"), [ctx.sessionManager.getSessionDir()]);
-  const sessions = await findTopicSessions(dirs);
-  if (!sessions.length) return ctx.ui.notify("No Pi sessions attached to a Zulip topic were found.", "info");
+  const sessions = await listTopicSessions(ctx);
+  if (!sessions.length) {
+    ctx.ui.notify("No Pi sessions attached to a Zulip topic were found.", "info");
+    return undefined;
+  }
   const now = new Date();
   const items = sessions.map((session) => ({
     value: session.path,
@@ -144,10 +158,24 @@ async function restoreSession(query: string, ctx: ExtensionCommandContext, runti
     description: describeTopicSession(session, now, currentFile),
   }));
   const picked = await searchableSelectItems(ctx, "Restore the Pi session for a Zulip topic", items, { initialQuery: query });
-  const session = sessions.find((item) => item.path === picked);
-  if (!session) return;
-  const label = topicLabel(session.state);
+  return sessions.find((item) => item.path === picked);
+}
 
+async function restoreSession(args: string, ctx: ExtensionCommandContext, runtime: CommandRuntime): Promise<void> {
+  let session: TopicSession | undefined;
+  if (args.startsWith(RESTORE_SESSION_FLAG)) {
+    const wanted = resolve(args.slice(RESTORE_SESSION_FLAG.length).trim());
+    session = (await listTopicSessions(ctx)).find((item) => resolve(item.path) === wanted);
+    if (!session) return ctx.ui.notify("That Pi session is no longer attached to a Zulip topic.", "warning");
+  } else {
+    session = await pickTopicSession(ctx, args);
+  }
+  if (session) await switchToTopicSession(session, ctx, runtime);
+}
+
+async function switchToTopicSession(session: TopicSession, ctx: ExtensionCommandContext, runtime: CommandRuntime): Promise<void> {
+  const currentFile = ctx.sessionManager.getSessionFile();
+  const label = topicLabel(session.state);
   if (currentFile && resolve(currentFile) === resolve(session.path)) {
     if (runtime.getConnection()?.isConnected) return ctx.ui.notify(`This session is already attached to ${label}.`, "info");
     const state = runtime.getAttachment() ?? session.state;

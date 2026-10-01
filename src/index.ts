@@ -1,12 +1,16 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { BotCredential, SessionAttachment } from "./types.ts";
-import { registerCommands, startSession, type CommandRuntime } from "./commands.ts";
+import { hasTopicSessions, pickTopicSession, registerCommands, RESTORE_SESSION_FLAG, startSession, type CommandRuntime } from "./commands.ts";
 import { ZulipConnection } from "./session/connection.ts";
 import { readAttachmentFromBranch, persistAttachment } from "./session/state.ts";
 import { takeRestoreHandoff } from "./session/catalog.ts";
 import { readBotCredential, readServerCredentials, saveBotCredential } from "./storage/credentials.ts";
 import { ZulipClient } from "./zulip/client.ts";
 import { registerTools } from "./tools.ts";
+
+const STARTUP_FRESH = "Start a fresh Zulip session";
+const STARTUP_RESTORE = "Restore a previous Zulip session";
+const STARTUP_NONE = "No Zulip for this session";
 
 const ZULIP_TOOLS = ["zulip_post", "zulip_read", "zulip_status", "zulip_ask", "zulip_wait", "zulip_answer"];
 
@@ -106,19 +110,7 @@ class PiZulipRuntime implements CommandRuntime {
       // /zulip-restore switched here on purpose: reattach even if the session was detached.
       if (takeRestoreHandoff(ctx.sessionManager.getSessionFile()) && state && event.reason === "resume") state.attached = true;
       if (!state?.attached) {
-        if (event.reason === "startup") {
-          const servers = await readServerCredentials();
-          if (servers.length) {
-            const start = await ctx.ui.confirm("Start a Zulip session?", `You are logged in to ${servers.map((server) => server.host).join(", ")}. Choose a project channel and topic to attach this Pi session.`);
-            if (start) {
-              try {
-                await startSession("", ctx, this);
-              } catch (error) {
-                ctx.ui.notify(`Could not start Zulip session: ${safeError(error)}`, "error");
-              }
-            }
-          }
-        }
+        if (event.reason === "startup") await this.offerStartupChoice(ctx);
         return;
       }
       if (event.reason === "fork") {
@@ -146,6 +138,25 @@ class PiZulipRuntime implements CommandRuntime {
         },
       };
     });
+  }
+
+  private async offerStartupChoice(ctx: ExtensionContext): Promise<void> {
+    const servers = await readServerCredentials();
+    if (!servers.length) return;
+    const choices = [STARTUP_FRESH, ...(await hasTopicSessions(ctx) ? [STARTUP_RESTORE] : []), STARTUP_NONE];
+    const choice = await ctx.ui.select(`Zulip (${servers.map((server) => server.host).join(", ")}): attach this Pi session?`, choices);
+    try {
+      if (choice === STARTUP_FRESH) await startSession("", ctx, this);
+      else if (choice === STARTUP_RESTORE) {
+        // Pick now: dialogs shown from session_start are reliable during startup.
+        const session = await pickTopicSession(ctx);
+        // Switching sessions is command-only and must not run inside session_start, so dispatch
+        // the internal command form once this handler has returned.
+        if (session) setTimeout(() => this.pi.sendUserMessage(`/zulip-restore ${RESTORE_SESSION_FLAG}${session.path}`, { expandPromptTemplates: true }), 0);
+      }
+    } catch (error) {
+      ctx.ui.notify(`Could not ${choice === STARTUP_FRESH ? "start" : "restore"} Zulip session: ${safeError(error)}`, "error");
+    }
   }
 
   async reattach(state: SessionAttachment, ctx: ExtensionContext): Promise<void> {

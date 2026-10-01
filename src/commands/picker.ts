@@ -70,7 +70,7 @@ export async function searchableSelectItems(
           description: (text) => theme.fg("muted", text),
           scrollInfo: (text) => theme.fg("dim", text),
           noMatch: (text) => theme.fg("warning", text),
-        });
+        }, { minPrimaryColumnWidth: 16, maxPrimaryColumnWidth: 60 });
         selectList.setSelectedIndex(selectedIndex);
         selectList.onSelect = (item) => done(item.value);
         selectList.onCancel = () => done(undefined);
